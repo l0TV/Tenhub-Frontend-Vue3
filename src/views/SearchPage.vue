@@ -88,7 +88,7 @@ const isAttributeSelected = (attrId, value) => selectedAttrs.value.some((item) =
             <div class="product-image"><img :src="normalizeImageUrl(product.skuImg)" :alt="product.skuTitle" /><button class="heart" @click.stop="showToast('已收藏商品')">♡</button></div><strong class="product-price">¥{{ formatPrice(product.skuPrice) }}</strong>
             <h3 v-html="product.skuTitle"></h3>
             <p>已有 {{ product.saleCount || 0 }}+ 人评价 <span>·</span> {{ product.hasStock ? '有货' : '暂时无货' }}</p>
-            <div class="product-tags"><span>自营</span><span>满减</span><button @click.stop="addToCart(product.skuTitle || '')">加入购物车</button></div>
+            <div class="product-tags"><span>自营</span><span>满减</span><button @click.stop="addToCart(product.skuId, product.skuTitle || product.skuName || '商品')">加入购物车</button></div>
           </article>
         </div>
         <div v-if="isLoading" class="empty-state">正在从搜索服务加载商品...</div>

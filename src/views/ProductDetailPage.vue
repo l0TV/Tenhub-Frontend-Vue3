@@ -61,7 +61,7 @@ const {
             </div>
           </div>
           <div class="detail-buy-row"><label>数量：</label>
-            <div class="quantity"><button @click="detailQuantity = Math.max(1, detailQuantity - 1)">−</button><input v-model.number="detailQuantity" type="number" min="1" /><button @click="detailQuantity += 1">＋</button></div><button class="buy-now" @click="showToast('下单功能即将开放')">立即购买</button><button class="add-cart" @click="addToCart(detailSku.skuTitle || detailSku.skuName || '商品')">加入购物车</button>
+            <div class="quantity"><button @click="detailQuantity = Math.max(1, detailQuantity - 1)">−</button><input v-model.number="detailQuantity" type="number" min="1" max="9999" /><button @click="detailQuantity = Math.min(9999, detailQuantity + 1)">＋</button></div><button class="buy-now" @click="showToast('下单功能即将开放')">立即购买</button><button class="add-cart" @click="addToCart(detailSku.skuId || detailSkuId, detailSku.skuTitle || detailSku.skuName || '商品', detailQuantity)">加入购物车</button>
           </div>
           <div class="detail-service"><span>✓ 七天无理由退货</span><span>✓ 极速发货</span><span>✓ 拾汇自营</span></div>
         </div>

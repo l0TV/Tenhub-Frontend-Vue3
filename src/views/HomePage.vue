@@ -12,7 +12,6 @@ const {
   logout,
   openSearch,
   showToast,
-  addToCart,
   prevSlide,
   nextSlide,
 } = useMallAppContext()
@@ -62,7 +61,7 @@ const {
         <div class="countdown"><span>当前场次</span><b>03</b><i>:</i><b>59</b><i>:</i><b>50</b><span>后结束</span></div>
       </div>
       <div class="seckill-body">
-        <article v-for="product in seckillProducts" :key="product.image" class="seckill-card" @click="addToCart(product.title)"><img :src="`/index-img/${product.image}`" :alt="product.title" />
+        <article v-for="product in seckillProducts" :key="product.image" class="seckill-card" @click="showToast('请进入商品详情后加入购物车')"><img :src="`/index-img/${product.image}`" :alt="product.title" />
           <div class="seckill-info"><h3>{{ product.title }}</h3><strong>¥{{ product.price }}</strong><del>¥{{ product.old }}</del></div>
         </article>
         <article class="seckill-ad"><img src="/index-img/section_second_list_right_img.jpg" alt="品牌秒杀" /><span>品牌好物 · 限时专享</span></article>

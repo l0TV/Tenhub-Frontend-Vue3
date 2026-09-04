@@ -1,4 +1,4 @@
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Client } from '@stomp/stompjs'
 import QRCode from 'qrcode'
 import { useAuthSession } from '../services/authSession'
@@ -16,7 +16,47 @@ export function useMallApp() {
   const page = ref('home')
   const query = ref('')
   const searchInput = ref('')
-  const cartCount = ref(0)
+  const emptyCart = () => ({ items: [], itemCount: 0, typeCount: 0, totalPrice: 0, discount: 0 })
+  const cart = ref(emptyCart())
+  const cartCount = computed(() => cart.value.items.reduce((sum, item) => sum + Math.max(0, Number(item?.count) || 0), 0))
+  const cartSelectedCount = computed(() => cart.value.items
+    .filter((item) => item?.check)
+    .reduce((sum, item) => sum + Math.max(0, Number(item?.count) || 0), 0))
+  const cartSelectedTypeCount = computed(() => cart.value.items.filter((item) => item?.check).length)
+  const cartSelectedTotal = computed(() => cart.value.items
+    .filter((item) => item?.check)
+    .reduce((sum, item) => sum + (Number(item?.price) || 0) * (Number(item?.count) || 0), 0))
+  const cartLoading = ref(false)
+  const cartError = ref('')
+  const cartActionSkuId = ref(null)
+  const emptyOrderConfirm = () => ({
+    memberReceiveAddresses: [],
+    orderItems: [],
+    integration: 0,
+    totalPrice: 0,
+    payPrice: 0,
+    stocks: {},
+    orderToken: '',
+  })
+  const orderConfirm = ref(null)
+  const orderConfirmLoading = ref(false)
+  const orderConfirmError = ref('')
+  const orderSelectedAddressId = ref(null)
+  const orderPayType = ref('online')
+  const orderFreight = ref(null)
+  const orderFreightLoading = ref(false)
+  const orderFreightError = ref('')
+  const orderAddressSaving = ref(false)
+  const orderSubmitting = ref(false)
+  const orders = ref([])
+  const ordersLoading = ref(false)
+  const ordersError = ref('')
+  const ordersPage = ref(1)
+  const ordersTotalPages = ref(0)
+  const ordersStatus = ref('')
+  const cashierOrder = ref(null)
+  const cashierLoading = ref(false)
+  const cashierError = ref('')
   const activeSlide = ref(0)
   const sortBy = ref('')
   const selectedBrandId = ref(null)
@@ -70,6 +110,10 @@ export function useMallApp() {
   let activeRequest
   let categoryRequest
   let detailRequest
+  let orderConfirmRequest
+  let orderFareRequest
+  let ordersRequest
+  let cashierRequest
   let routeListener
 
   const slides = [
@@ -121,6 +165,382 @@ const showToast = (message) => {
   toast.value = message
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (toast.value = ''), 2200)
+}
+const normalizeCartItem = (item) => {
+  if (!item || item.skuId == null) return null
+  return {
+    ...item,
+    skuId: item.skuId,
+    count: Math.max(1, Number(item.count) || 1),
+    price: Number(item.price) || 0,
+    check: item.check === true || item.check === 'true' || item.check === 1 || item.check === '1',
+    skuAttr: Array.isArray(item.skuAttr) ? item.skuAttr : [],
+  }
+}
+const normalizeCart = (payload) => {
+  const items = (Array.isArray(payload?.items) ? payload.items : []).map(normalizeCartItem).filter(Boolean)
+  return {
+    ...emptyCart(),
+    ...payload,
+    items,
+    discount: Number(payload?.discount) || 0,
+    itemCount: items.filter((item) => item.check).reduce((sum, item) => sum + item.count, 0),
+    typeCount: items.filter((item) => item.check).length,
+    totalPrice: items.filter((item) => item.check).reduce((sum, item) => sum + item.price * item.count, 0),
+  }
+}
+const cartApiError = (result, fallback) => result?.msg || result?.message || fallback
+const normalizeOrderConfirmItem = (item) => {
+  if (!item || item.skuId == null) return null
+  const count = Math.max(1, Number(item.count) || 1)
+  const price = Number(item.price) || 0
+  return {
+    ...item,
+    skuId: item.skuId,
+    count,
+    price,
+    totalPrice: Number.isFinite(Number(item.totalPrice)) ? Number(item.totalPrice) : price * count,
+    skuAttr: Array.isArray(item.skuAttr) ? item.skuAttr : [],
+  }
+}
+const normalizeOrderConfirm = (payload) => {
+  const orderItems = (Array.isArray(payload?.orderItems) ? payload.orderItems : [])
+    .map(normalizeOrderConfirmItem)
+    .filter(Boolean)
+  const calculatedTotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0)
+  const totalPrice = Number.isFinite(Number(payload?.totalPrice)) ? Number(payload.totalPrice) : calculatedTotal
+  const payPrice = Number.isFinite(Number(payload?.payPrice)) ? Number(payload.payPrice) : totalPrice
+  return {
+    ...emptyOrderConfirm(),
+    ...payload,
+    memberReceiveAddresses: Array.isArray(payload?.memberReceiveAddresses) ? payload.memberReceiveAddresses : [],
+    orderItems,
+    integration: Math.max(0, Number(payload?.integration) || 0),
+    totalPrice,
+    payPrice,
+    stocks: payload?.stocks && typeof payload.stocks === 'object' ? payload.stocks : {},
+  }
+}
+const resetOrderConfirm = () => {
+  orderConfirm.value = null
+  orderConfirmError.value = ''
+  orderSelectedAddressId.value = null
+  orderFreight.value = null
+  orderFreightError.value = ''
+}
+const selectedOrderAddress = () => orderConfirm.value?.memberReceiveAddresses?.find(
+  (address) => String(address?.id) === String(orderSelectedAddressId.value),
+) || null
+const loadOrderFreight = async () => {
+  orderFareRequest?.abort()
+  const address = selectedOrderAddress()
+  const items = orderConfirm.value?.orderItems || []
+  if (!address?.id || !items.length) {
+    orderFreight.value = null
+    orderFreightError.value = ''
+    orderFreightLoading.value = false
+    return false
+  }
+
+  const request = new AbortController()
+  orderFareRequest = request
+  orderFreightLoading.value = true
+  orderFreightError.value = ''
+  try {
+    const skuIds = [...new Set(items.map((item) => item.skuId).filter((skuId) => skuId != null))]
+    const fares = await Promise.all(skuIds.map(async (skuId) => {
+      const response = await authFetch(
+        `${apiBase}/ware/wareinfo/fare?addrId=${encodeURIComponent(address.id)}&skuId=${encodeURIComponent(skuId)}`,
+        { signal: request.signal, credentials: 'include' },
+      )
+      const payload = await response.json().catch(() => null)
+      const value = Number(payload?.data ?? payload)
+      if (!response.ok || !Number.isFinite(value) || value < 0) {
+        throw new Error(payload?.msg || '运费计算失败')
+      }
+      return value
+    }))
+    if (orderFareRequest !== request) return false
+    orderFreight.value = fares.reduce((sum, fare) => sum + fare, 0)
+    return true
+  } catch (error) {
+    if (error.name === 'AbortError') return false
+    if (orderFareRequest === request) {
+      orderFreight.value = null
+      orderFreightError.value = error.message || '运费暂时无法计算'
+    }
+    return false
+  } finally {
+    if (orderFareRequest === request) orderFreightLoading.value = false
+  }
+}
+const loadOrderConfirm = async (notifyOnError = false) => {
+  if (!isAuthenticated.value) {
+    resetOrderConfirm()
+    return false
+  }
+  orderConfirmRequest?.abort()
+  const request = new AbortController()
+  orderConfirmRequest = request
+  orderConfirmLoading.value = true
+  orderConfirmError.value = ''
+  try {
+    const response = await authFetch(`${apiBase}/order/order/confirm-data`, {
+      signal: request.signal,
+      credentials: 'include',
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0 || !result.data) {
+      throw new Error(cartApiError(result, response.status === 401 ? '登录已过期，请重新登录' : '订单信息加载失败'))
+    }
+    if (orderConfirmRequest !== request) return false
+    const payload = normalizeOrderConfirm(result.data)
+    orderConfirm.value = payload
+    const previousAddressStillExists = payload.memberReceiveAddresses.some(
+      (address) => String(address?.id) === String(orderSelectedAddressId.value),
+    )
+    if (!previousAddressStillExists) {
+      orderSelectedAddressId.value = payload.memberReceiveAddresses.find((address) => Number(address?.defaultStatus) === 1)?.id
+        ?? payload.memberReceiveAddresses[0]?.id
+        ?? null
+    }
+    await loadOrderFreight()
+    return true
+  } catch (error) {
+    if (error.name === 'AbortError') return false
+    if (orderConfirmRequest === request) {
+      resetOrderConfirm()
+      orderConfirmError.value = error.message || '订单信息加载失败'
+      if (notifyOnError) showToast(orderConfirmError.value)
+    }
+    return false
+  } finally {
+    if (orderConfirmRequest === request) orderConfirmLoading.value = false
+  }
+}
+const selectOrderAddress = (addressId) => {
+  if (String(addressId) === String(orderSelectedAddressId.value)) return
+  orderSelectedAddressId.value = addressId
+  loadOrderFreight()
+}
+const saveOrderAddress = async (address) => {
+  if (!isAuthenticated.value || orderAddressSaving.value) return false
+  orderAddressSaving.value = true
+  try {
+    const response = await authFetch(`${apiBase}/member/memberreceiveaddress/put`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        name: String(address?.name || '').trim(),
+        phone: String(address?.phone || '').trim(),
+        province: String(address?.province || '').trim(),
+        city: String(address?.city || '').trim(),
+        region: String(address?.region || '').trim(),
+        detailAddress: String(address?.detailAddress || '').trim(),
+        postCode: String(address?.postCode || '').trim(),
+        areacode: String(address?.areacode || '').trim(),
+        defaultStatus: Number(address?.defaultStatus) === 1 ? 1 : 0,
+      }),
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0) throw new Error(cartApiError(result, '地址保存失败'))
+    await loadOrderConfirm(false)
+    showToast('收货地址已添加')
+    return true
+  } catch (error) {
+    showToast(error.message || '地址保存失败')
+    return false
+  } finally {
+    orderAddressSaving.value = false
+  }
+}
+const openCheckout = () => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后再结算')
+    navigate('/login')
+    return false
+  }
+  if (!cartSelectedCount.value) {
+    showToast('请先选择要结算的商品')
+    return false
+  }
+  navigate('/order/confirm')
+  return true
+}
+const backToCart = () => navigate('/cart')
+const openOrders = () => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后查看订单')
+    navigate('/login')
+    return false
+  }
+  navigate('/orders')
+  return true
+}
+const loadOrders = async (pageNum = ordersPage.value, status = ordersStatus.value, notifyOnError = false) => {
+  if (!isAuthenticated.value) {
+    orders.value = []
+    return false
+  }
+  ordersRequest?.abort()
+  const request = new AbortController()
+  ordersRequest = request
+  ordersLoading.value = true
+  ordersError.value = ''
+  try {
+    const params = new URLSearchParams({ page: String(pageNum), limit: '8' })
+    if (status) params.set('status', status)
+    const response = await authFetch(`${apiBase}/order/order/my-list?${params.toString()}`, {
+      signal: request.signal,
+      credentials: 'include',
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0 || !result.page) {
+      throw new Error(cartApiError(result, response.status === 401 ? '登录已过期，请重新登录' : '订单加载失败'))
+    }
+    if (ordersRequest !== request) return false
+    const pageData = result.page
+    orders.value = Array.isArray(pageData.list) ? pageData.list : []
+    ordersPage.value = Number(pageData.currPage) || pageNum
+    ordersTotalPages.value = Number(pageData.totalPage) || 0
+    ordersStatus.value = status || ''
+    return true
+  } catch (error) {
+    if (error.name === 'AbortError') return false
+    if (ordersRequest === request) {
+      orders.value = []
+      ordersError.value = error.message || '订单加载失败'
+      if (notifyOnError) showToast(ordersError.value)
+    }
+    return false
+  } finally {
+    if (ordersRequest === request) ordersLoading.value = false
+  }
+}
+const loadCashierOrder = async (orderSn) => {
+  if (!isAuthenticated.value || !orderSn) return false
+  cashierRequest?.abort()
+  const request = new AbortController()
+  cashierRequest = request
+  cashierLoading.value = true
+  cashierError.value = ''
+  cashierOrder.value = null
+  try {
+    const response = await authFetch(`${apiBase}/order/order/my/${encodeURIComponent(orderSn)}`, {
+      signal: request.signal,
+      credentials: 'include',
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0 || !result.data) {
+      throw new Error(cartApiError(result, response.status === 404 ? '订单不存在或已失效' : '订单信息加载失败'))
+    }
+    if (cashierRequest !== request) return false
+    cashierOrder.value = result.data
+    return true
+  } catch (error) {
+    if (error.name === 'AbortError') return false
+    if (cashierRequest === request) cashierError.value = error.message || '订单信息加载失败'
+    return false
+  } finally {
+    if (cashierRequest === request) cashierLoading.value = false
+  }
+}
+const submitOrder = async (note = '') => {
+  if (orderSubmitting.value) return false
+  if (!orderConfirm.value?.orderItems?.length) {
+    showToast('没有可提交的商品，请返回购物车重新选择')
+    return false
+  }
+  if (!selectedOrderAddress()) {
+    showToast('请选择收货地址')
+    return false
+  }
+  const outOfStock = orderConfirm.value.orderItems.find((item) => orderConfirm.value.stocks?.[item.skuId] === false
+    || orderConfirm.value.stocks?.[String(item.skuId)] === false)
+  if (outOfStock) {
+    showToast(`“${String(outOfStock.title || '商品').slice(0, 18)}”库存不足`)
+    return false
+  }
+  const freight = Number(orderFreight.value) || 0
+  const payPrice = Math.max(0, (Number(orderConfirm.value.payPrice) || 0) + freight)
+  orderSubmitting.value = true
+  try {
+    const response = await authFetch(`${apiBase}/order/order/submit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        addrId: selectedOrderAddress()?.id,
+        payType: orderPayType.value === 'cod' ? 4 : 2,
+        orderToken: orderConfirm.value.orderToken,
+        payPrice,
+        note: String(note || '').trim(),
+      }),
+    })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0 || !result.data?.orderEntity?.orderSn) {
+      throw new Error(cartApiError(result, '订单提交失败，请稍后重试'))
+    }
+    const orderSn = result.data.orderEntity.orderSn
+    await loadCart(false)
+    showToast('订单提交成功，正在进入收银台')
+    navigate(`/cashier?orderSn=${encodeURIComponent(orderSn)}`)
+    return true
+  } catch (error) {
+    if (error.name !== 'AbortError') showToast(error.message || '订单提交失败，请稍后重试')
+    return false
+  } finally {
+    orderSubmitting.value = false
+  }
+}
+const loadCart = async (notifyOnError = false) => {
+  if (!isAuthenticated.value) {
+    cart.value = emptyCart()
+    cartError.value = ''
+    return false
+  }
+  cartLoading.value = true
+  cartError.value = ''
+  try {
+    const response = await authFetch(`${apiBase}/cart/cart`, { credentials: 'include' })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0 || !result.data) {
+      throw new Error(cartApiError(result, response.status === 401 ? '登录已过期，请重新登录' : '购物车加载失败'))
+    }
+    cart.value = normalizeCart(result.data)
+    return true
+  } catch (error) {
+    cart.value = emptyCart()
+    cartError.value = error.message || '购物车加载失败'
+    if (notifyOnError) showToast(cartError.value)
+    return false
+  } finally {
+    cartLoading.value = false
+  }
+}
+const runCartAction = async (skuId, request) => {
+  const key = String(skuId)
+  if (cartActionSkuId.value != null) return false
+  cartActionSkuId.value = key
+  try {
+    const response = await request()
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok || result.code !== 0) {
+      if (response.status === 401) {
+        clearAuthSession()
+        cart.value = emptyCart()
+      }
+      throw new Error(cartApiError(result, '购物车操作失败'))
+    }
+    await loadCart(false)
+    return true
+  } catch (error) {
+    showToast(error.message || '购物车操作失败')
+    return false
+  } finally {
+    cartActionSkuId.value = null
+  }
 }
 const resetFilters = () => {
   selectedBrandId.value = null
@@ -259,7 +679,7 @@ const loadDetail = async (skuId) => {
   }
 }
 const handleRoute = (path = window.location.pathname) => {
-  const normalized = path.replace(/\/+$/, '') || '/'
+  const normalized = String(path).split('?')[0].replace(/\/+$/, '') || '/'
   const itemMatch = normalized.match(/^\/item\/([^/]+)$/)
   if (itemMatch) {
     page.value = 'item'
@@ -271,6 +691,65 @@ const handleRoute = (path = window.location.pathname) => {
   if (normalized === '/search') {
     page.value = 'search'
     loadSearch(1, false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (normalized === '/cart') {
+    if (!isAuthenticated.value) {
+      authMode.value = 'login'
+      authMessage.value = '请先登录后查看购物车'
+      authError.value = ''
+      window.history.replaceState({}, '', '/login')
+      page.value = 'login'
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    page.value = 'cart'
+    loadCart(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (normalized === '/orders') {
+    if (!isAuthenticated.value) {
+      authMode.value = 'login'
+      authMessage.value = '请先登录后查看订单'
+      authError.value = ''
+      window.history.replaceState({}, '', '/login')
+      page.value = 'login'
+      return
+    }
+    page.value = 'orders'
+    loadOrders(1, ordersStatus.value, false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (normalized === '/cashier') {
+    if (!isAuthenticated.value) {
+      authMode.value = 'login'
+      authMessage.value = '请先登录后查看收银台'
+      authError.value = ''
+      window.history.replaceState({}, '', '/login')
+      page.value = 'login'
+      return
+    }
+    page.value = 'cashier'
+    const orderSn = new URLSearchParams(window.location.search).get('orderSn')
+    loadCashierOrder(orderSn)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (normalized === '/order/confirm' || normalized === '/checkout') {
+    if (!isAuthenticated.value) {
+      authMode.value = 'login'
+      authMessage.value = '请先登录后确认订单'
+      authError.value = ''
+      window.history.replaceState({}, '', '/login')
+      page.value = 'login'
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    page.value = 'checkout'
+    loadOrderConfirm(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
     return
   }
@@ -436,9 +915,68 @@ const clearAttributeFilter = (encoded) => {
   selectedAttrs.value = selectedAttrs.value.filter((item) => item !== encoded)
   loadSearch(1, true)
 }
-const addToCart = (name) => {
-  cartCount.value += 1
-  showToast(`${name.slice(0, 16)} 已加入购物车`)
+const addToCart = async (skuId, name = '商品', quantity = 1) => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后再加入购物车')
+    navigate('/login')
+    return false
+  }
+  const normalizedSkuId = Number(skuId)
+  const count = Math.max(1, Math.min(9999, Math.floor(Number(quantity) || 1)))
+  if (!Number.isSafeInteger(normalizedSkuId) || normalizedSkuId <= 0) {
+    showToast('该商品暂未关联可购买的库存')
+    return false
+  }
+  const succeeded = await runCartAction(normalizedSkuId, () => authFetch(
+    `${apiBase}/cart/add?skuId=${encodeURIComponent(normalizedSkuId)}&num=${encodeURIComponent(count)}`,
+    { method: 'POST', credentials: 'include' },
+  ))
+  if (succeeded) showToast(`${String(name || '商品').slice(0, 16)} 已加入购物车`)
+  return succeeded
+}
+const updateCartCount = async (skuId, count) => {
+  if (!isAuthenticated.value) return false
+  const normalizedCount = Math.max(1, Math.min(9999, Math.floor(Number(count) || 1)))
+  return runCartAction(skuId, () => authFetch(
+    `${apiBase}/cart/items/${encodeURIComponent(skuId)}?count=${encodeURIComponent(normalizedCount)}`,
+    { method: 'PATCH', credentials: 'include' },
+  ))
+}
+const changeCartQuantity = (item, delta) => updateCartCount(item.skuId, Number(item.count) + delta)
+const updateCartChecked = async (skuId, checked) => {
+  if (!isAuthenticated.value) return false
+  return runCartAction(skuId, () => authFetch(
+    `${apiBase}/cart/items/${encodeURIComponent(skuId)}/checked?checked=${checked ? 'true' : 'false'}`,
+    { method: 'PATCH', credentials: 'include' },
+  ))
+}
+const toggleAllCartItems = async (checked) => {
+  const items = cart.value.items.filter((item) => Boolean(item?.check) !== checked)
+  for (const item of items) {
+    // Sequential updates keep Redis and the UI deterministic on slower gateways.
+    await updateCartChecked(item.skuId, checked)
+  }
+}
+const removeCartItem = async (skuId) => {
+  if (!isAuthenticated.value) return false
+  const succeeded = await runCartAction(skuId, () => authFetch(
+    `${apiBase}/cart/items/${encodeURIComponent(skuId)}`,
+    { method: 'DELETE', credentials: 'include' },
+  ))
+  if (succeeded) showToast('商品已从购物车移除')
+  return succeeded
+}
+const clearCart = async () => {
+  const items = [...cart.value.items]
+  for (const item of items) await removeCartItem(item.skuId)
+}
+const openCart = () => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后查看购物车')
+    navigate('/login')
+    return
+  }
+  navigate('/cart')
 }
 const authApiError = (result, fallback) => {
   if (result?.errors && typeof result.errors === 'object') {
@@ -473,11 +1011,14 @@ const acceptAuthToken = async (rawToken, message, remember = false) => {
   if (!rawToken) throw new Error('认证成功，但服务器没有返回登录凭证')
   setAuthToken(rawToken, { remember })
   await loadCurrentMember(false)
+  await loadCart(false)
   authError.value = ''
   authMessage.value = message
 }
 const logout = () => {
   clearAuthSession()
+  cart.value = emptyCart()
+  cartError.value = ''
   wechatClient?.deactivate()
   showToast('已安全退出登录')
   goHome()
@@ -636,7 +1177,14 @@ onMounted(() => {
   routeListener = () => handleRoute()
   window.addEventListener('popstate', routeListener)
   handleRoute()
-  if (isAuthenticated.value) loadCurrentMember(true)
+  if (isAuthenticated.value) {
+    loadCurrentMember(true)
+    loadCart(false)
+  }
+})
+watch(isAuthenticated, (authenticated) => {
+  if (authenticated) loadCart(false)
+  else cart.value = emptyCart()
 })
 onBeforeUnmount(() => {
   clearInterval(carouselTimer)
@@ -644,6 +1192,10 @@ onBeforeUnmount(() => {
   activeRequest?.abort()
   categoryRequest?.abort()
   detailRequest?.abort()
+  orderConfirmRequest?.abort()
+  orderFareRequest?.abort()
+  ordersRequest?.abort()
+  cashierRequest?.abort()
   clearInterval(emailCountdownTimer)
   wechatClient?.deactivate()
   if (routeListener) window.removeEventListener('popstate', routeListener)
@@ -653,7 +1205,33 @@ onBeforeUnmount(() => {
     page,
     query,
     searchInput,
+    cart,
     cartCount,
+    cartSelectedCount,
+    cartSelectedTypeCount,
+    cartSelectedTotal,
+    cartLoading,
+    cartError,
+    cartActionSkuId,
+    orderConfirm,
+    orderConfirmLoading,
+    orderConfirmError,
+    orderSelectedAddressId,
+    orderPayType,
+    orderFreight,
+    orderFreightLoading,
+    orderFreightError,
+    orderAddressSaving,
+    orderSubmitting,
+    orders,
+    ordersLoading,
+    ordersError,
+    ordersPage,
+    ordersTotalPages,
+    ordersStatus,
+    cashierOrder,
+    cashierLoading,
+    cashierError,
     activeSlide,
     sortBy,
     selectedBrandId,
@@ -740,6 +1318,24 @@ onBeforeUnmount(() => {
     clearFilter,
     clearAttributeFilter,
     addToCart,
+    loadCart,
+    updateCartCount,
+    changeCartQuantity,
+    updateCartChecked,
+    toggleAllCartItems,
+    removeCartItem,
+    clearCart,
+    openCart,
+    loadOrderConfirm,
+    loadOrderFreight,
+    selectOrderAddress,
+    saveOrderAddress,
+    openCheckout,
+    openOrders,
+    loadOrders,
+    loadCashierOrder,
+    backToCart,
+    submitOrder,
     submitAuth,
     sendEmailCode,
     loadWeixinQr,

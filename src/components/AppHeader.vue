@@ -12,10 +12,11 @@ const {
   navigate,
   logout,
   goHome,
+  openCart,
+  openOrders,
   performSearch,
   openCatalogSearch,
   openSearch,
-  showToast,
 } = useMallAppContext()
 </script>
 
@@ -30,7 +31,7 @@ const {
         <template v-else>
           <a @click="navigate('/login')">你好，请登录</a><a @click="navigate('/register')">免费注册</a>
         </template>
-        <i></i><a>我的订单</a><a>我的拾汇商城</a><a>客户服务</a><a>网站导航</a>
+        <i></i><a @click="openOrders">我的订单</a><a>我的拾汇商城</a><a>客户服务</a><a>网站导航</a>
       </div>
     </div>
   </div>
@@ -53,7 +54,7 @@ const {
           <a @click="openSearch('超市')">超市</a>
         </div>
       </div>
-      <button class="cart-button" @click="showToast('购物车暂时为空，快去挑选好物吧')"><span>🛒</span> 我的购物车 <b>{{ cartCount }}</b><em>›</em></button>
+      <button class="cart-button" @click="openCart"><span>🛒</span> 我的购物车 <b>{{ cartCount }}</b><em>›</em></button>
     </div>
     <nav class="nav-bar page-width">
       <button class="catalog-button" @click="goHome">全部商品分类 <span>☰</span></button>

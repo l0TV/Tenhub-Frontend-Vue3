@@ -17,6 +17,7 @@ const {
   performSearch,
   openCatalogSearch,
   openSearch,
+  openSeckill,
 } = useMallAppContext()
 </script>
 
@@ -58,7 +59,7 @@ const {
     </div>
     <nav class="nav-bar page-width">
       <button class="catalog-button" @click="goHome">全部商品分类 <span>☰</span></button>
-      <button v-for="item in navItems" :key="item" class="nav-link" :class="{ active: item === '秒杀' && page === 'home' }" @click="item === '秒杀' ? goHome() : openSearch(item)">{{ item }}</button>
+      <button v-for="item in navItems" :key="item" class="nav-link" :class="{ active: item === '秒杀' && page === 'seckill' }" @click="item === '秒杀' ? openSeckill() : openSearch(item)">{{ item }}</button>
     </nav>
   </header>
 </template>

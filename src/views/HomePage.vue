@@ -5,7 +5,10 @@ import { useMallAppContext } from '../composables/mallContext'
 const {
   activeSlide,
   slides,
-  seckillProducts,
+  seckillItems,
+  seckillLoading,
+  seckillCountdown,
+  openSeckill,
   isAuthenticated,
   currentDisplayName,
   navigate,
@@ -58,12 +61,14 @@ const {
     <section class="seckill-section">
       <div class="section-heading red-heading">
         <div class="heading-title"><span class="flash-icon">ϟ</span><strong>限时秒杀</strong><small>总有你想不到的低价</small></div>
-        <div class="countdown"><span>当前场次</span><b>03</b><i>:</i><b>59</b><i>:</i><b>50</b><span>后结束</span></div>
+        <div class="countdown"><span>{{ seckillCountdown.status }}</span><b>{{ seckillCountdown.hours }}</b><i>:</i><b>{{ seckillCountdown.minutes }}</b><i>:</i><b>{{ seckillCountdown.seconds }}</b><button class="home-seckill-more" @click="openSeckill">查看全部</button></div>
       </div>
       <div class="seckill-body">
-        <article v-for="product in seckillProducts" :key="product.image" class="seckill-card" @click="showToast('请进入商品详情后加入购物车')"><img :src="`/index-img/${product.image}`" :alt="product.title" />
-          <div class="seckill-info"><h3>{{ product.title }}</h3><strong>¥{{ product.price }}</strong><del>¥{{ product.old }}</del></div>
-        </article>
+        <template v-if="seckillLoading && !seckillItems.length"><article v-for="index in 5" :key="`loading-${index}`" class="seckill-card seckill-loading-card"><span></span><i></i><i></i></article></template>
+        <template v-else><article v-for="product in seckillItems.slice(0, 5)" :key="product.skuId" class="seckill-card" @click="openSeckill"><img :src="product.skuInfo.skuDefaultImg || '/index-img/section_second_list_img1.jpg'" :alt="product.skuInfo.skuTitle || product.skuInfo.skuName" />
+          <div class="seckill-info"><h3>{{ product.skuInfo.skuTitle || product.skuInfo.skuName }}</h3><strong>¥{{ product.seckillPrice.toFixed(2) }}</strong><del v-if="product.skuInfo.price">¥{{ Number(product.skuInfo.price).toFixed(2) }}</del></div>
+        </article></template>
+        <article v-if="!seckillLoading && !seckillItems.length" class="seckill-empty-card"><b>当前暂无进行中的秒杀</b><button @click="openSeckill">查看活动</button></article>
         <article class="seckill-ad"><img src="/index-img/section_second_list_right_img.jpg" alt="品牌秒杀" /><span>品牌好物 · 限时专享</span></article>
       </div>
     </section>

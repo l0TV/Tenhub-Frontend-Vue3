@@ -31,7 +31,7 @@ const orderItems = (order) => Array.isArray(order?.items) ? order.items : []
 const orderTitle = (order) => orderItems(order)[0]?.skuName || '拾汇商城订单'
 const orderImage = (order) => orderItems(order)[0]?.skuPic || '/index-img/section_second_list_img1.jpg'
 const itemCount = (order) => orderItems(order).reduce((sum, item) => sum + (Number(item?.skuQuantity) || 0), 0)
-const canPay = (order) => Number(order?.status) === 0
+const canPay = (order) => Number(order?.status) === 0 && [1, 2].includes(Number(order?.payType))
 const showPager = computed(() => ordersTotalPages.value > 1)
 const selectStatus = (value) => loadOrders(1, value, false)
 const changePage = (page) => {

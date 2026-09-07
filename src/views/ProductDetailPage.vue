@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue'
 import { useMallAppContext } from '../composables/mallContext'
 
 const {
@@ -12,6 +13,15 @@ const {
   detailQuantity,
   detailSelectedAttrs,
   detailDescription,
+  detailSeckillInfos,
+  detailActiveSeckillInfos,
+  detailSelectedSeckill,
+  detailSelectedSeckillSessionId,
+  seckillCountdownFor,
+  selectDetailSeckillSession,
+  isSeckillActive,
+  seckillActionSkuId,
+  cartActionSkuId,
   goHome,
   openSearch,
   loadDetail,
@@ -21,7 +31,31 @@ const {
   selectSaleAttr,
   showToast,
   addToCart,
+  buyNow,
+  buySelectedSeckill,
 } = useMallAppContext()
+
+const hasActiveSeckill = computed(() => detailActiveSeckillInfos.value.length > 0)
+const displayedPrice = computed(() => hasActiveSeckill.value
+  ? detailSelectedSeckill.value?.seckillPrice
+  : detailSku.value.price)
+const quantityLimit = computed(() => hasActiveSeckill.value
+  ? Math.max(1, Number(detailSelectedSeckill.value?.seckillLimit) || 1)
+  : 9999)
+const purchaseBusy = computed(() => cartActionSkuId.value != null || seckillActionSkuId.value != null)
+const sessionTiming = (session) => seckillCountdownFor(session)
+const sessionTitle = (session) => session?.sessionName || `秒杀场次 ${session?.promotionSessionId || ''}`
+const decrementQuantity = () => {
+  detailQuantity.value = Math.max(1, (Number(detailQuantity.value) || 1) - 1)
+}
+const incrementQuantity = () => {
+  detailQuantity.value = Math.min(quantityLimit.value, (Number(detailQuantity.value) || 1) + 1)
+}
+const normalBuy = () => buyNow(
+  detailSku.value.skuId || detailSkuId.value,
+  detailSku.value.skuTitle || detailSku.value.skuName || '商品',
+  1,
+)
 </script>
 
 <template>
@@ -49,8 +83,14 @@ const {
         <div class="detail-info">
           <h1>{{ detailSku.skuTitle || detailSku.skuName }}</h1>
           <p class="detail-subtitle">{{ detailSku.skuSubtitle || detailSku.skuDesc || '精选品质好物，放心选购' }}</p>
-          <div class="detail-price"><span>¥</span>{{ formatPrice(detailSku.price) }}<del v-if="detailSku.marketPrice">¥{{ formatPrice(detailSku.marketPrice) }}</del></div>
-          <div class="detail-promo"><b>拾汇价</b><span>限时优惠 · 正品保障 · 全场包邮</span></div>
+          <div class="detail-price" :class="{ 'is-seckill-price': hasActiveSeckill }"><span>¥</span>{{ formatPrice(displayedPrice) }}<del v-if="hasActiveSeckill">¥{{ formatPrice(detailSku.price) }}</del><del v-else-if="detailSku.marketPrice">¥{{ formatPrice(detailSku.marketPrice) }}</del></div>
+          <div class="detail-promo" :class="{ 'is-seckill-promo': hasActiveSeckill }"><b>{{ hasActiveSeckill ? '秒杀价' : '拾汇价' }}</b><span>{{ hasActiveSeckill ? `${sessionTitle(detailSelectedSeckill)} · 限量抢购` : '限时优惠 · 正品保障 · 全场包邮' }}</span></div>
+          <section v-if="detailSeckillInfos.length" class="detail-seckill-offers" aria-label="秒杀场次">
+            <header><b>秒杀场次</b><span>同一商品可参与多个场次</span></header>
+            <button v-for="session in detailSeckillInfos" :key="session.promotionSessionId" class="detail-seckill-offer" :class="{ selected: String(detailSelectedSeckillSessionId) === String(session.promotionSessionId), active: isSeckillActive(session) }" @click="selectDetailSeckillSession(session.promotionSessionId)">
+              <span>{{ sessionTitle(session) }}</span><strong>¥{{ formatPrice(session.seckillPrice) }}</strong><small>{{ sessionTiming(session).status }} · {{ sessionTiming(session).text }}{{ sessionTiming(session).status === '进行中' ? ' 后结束' : '' }}</small>
+            </button>
+          </section>
           <div class="detail-meta">
             <span>累计销量：{{ detailSku.saleCount || 0 }}</span><span>配送至：北京</span><em :class="detailItem.hasStock ? 'sku-hasStock' : 'sku-noStock'">{{ detailItem.hasStock ? '有货' : '无货' }}</em>
           </div>
@@ -61,7 +101,7 @@ const {
             </div>
           </div>
           <div class="detail-buy-row"><label>数量：</label>
-            <div class="quantity"><button @click="detailQuantity = Math.max(1, detailQuantity - 1)">−</button><input v-model.number="detailQuantity" type="number" min="1" max="9999" /><button @click="detailQuantity = Math.min(9999, detailQuantity + 1)">＋</button></div><button class="buy-now" @click="showToast('下单功能即将开放')">立即购买</button><button class="add-cart" @click="addToCart(detailSku.skuId || detailSkuId, detailSku.skuTitle || detailSku.skuName || '商品', detailQuantity)">加入购物车</button>
+            <div class="quantity"><button @click="decrementQuantity">−</button><input v-model.number="detailQuantity" type="number" min="1" :max="quantityLimit" /><button @click="incrementQuantity">＋</button></div><button class="buy-now" :class="{ 'seckill-action': hasActiveSeckill }" :disabled="purchaseBusy || detailItem.hasStock === false" @click="hasActiveSeckill ? buySelectedSeckill() : normalBuy()">{{ purchaseBusy ? (hasActiveSeckill ? '抢购中…' : '购买中…') : hasActiveSeckill ? '立即抢购' : '立即购买' }}</button><button class="add-cart" :disabled="purchaseBusy" @click="addToCart(detailSku.skuId || detailSkuId, detailSku.skuTitle || detailSku.skuName || '商品', detailQuantity)">加入购物车</button>
           </div>
           <div class="detail-service"><span>✓ 七天无理由退货</span><span>✓ 极速发货</span><span>✓ 拾汇自营</span></div>
         </div>

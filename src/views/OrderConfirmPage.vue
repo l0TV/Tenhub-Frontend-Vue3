@@ -175,7 +175,7 @@ const submitAddress = async () => {
           <div class="checkout-payment-options">
             <label class="checkout-payment-option" :class="{ selected: orderPayType === 'online' }">
               <input v-model="orderPayType" type="radio" value="online" />
-              <span class="payment-option-icon">▣</span><b>在线支付</b><small>微信 / 支付宝</small>
+              <span class="payment-option-icon">▣</span><b>在线支付</b><small>支付宝</small>
             </label>
             <label class="checkout-payment-option" :class="{ selected: orderPayType === 'cod' }">
               <input v-model="orderPayType" type="radio" value="cod" />

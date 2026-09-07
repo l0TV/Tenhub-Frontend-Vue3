@@ -13,6 +13,7 @@ import OrdersPage from './views/OrdersPage.vue'
 import CashierPage from './views/CashierPage.vue'
 import ProductDetailPage from './views/ProductDetailPage.vue'
 import SearchPage from './views/SearchPage.vue'
+import SeckillPage from './views/SeckillPage.vue'
 import './assets/styles/app.css'
 
 const mallApp = useMallApp()
@@ -31,6 +32,7 @@ provide(mallAppKey, mallApp)
     <template v-else>
       <AppHeader />
       <HomePage v-if="mallApp.page.value === 'home'" />
+      <SeckillPage v-else-if="mallApp.page.value === 'seckill'" />
       <ProductDetailPage v-else-if="mallApp.page.value === 'item'" />
       <CartPage v-else-if="mallApp.page.value === 'cart'" />
       <OrdersPage v-else-if="mallApp.page.value === 'orders'" />

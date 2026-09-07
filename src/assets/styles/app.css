@@ -1244,6 +1244,58 @@ a {
   background: #fff4f4;
 }
 
+.buy-now:disabled,
+.add-cart:disabled {
+  border-color: #d9dce0;
+  color: #a6abb2;
+  background: #f1f2f4;
+  cursor: not-allowed;
+}
+
+.buy-now.seckill-action {
+  color: #fff;
+  background: #e2232d;
+}
+
+.detail-seckill-offers {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid #ffd8dc;
+  background: #fff8f8;
+}
+
+.detail-seckill-offers > header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.detail-seckill-offers > header b { color: #c71928; font-size: 13px; }
+.detail-seckill-offers > header span { color: #a2767a; font-size: 11px; }
+.detail-seckill-offer {
+  width: 100%;
+  min-height: 47px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px solid #f1c8cc;
+  color: #5e4a4d;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.detail-seckill-offer:first-of-type { margin-top: 0; }
+.detail-seckill-offer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.detail-seckill-offer strong { color: #e2232d; font-size: 15px; }
+.detail-seckill-offer small { grid-column: 1 / -1; margin-top: 3px; color: #9d8b8e; font-size: 10px; }
+.detail-seckill-offer.selected { border-color: #e2232d; box-shadow: inset 3px 0 #e2232d; background: #fff3f4; }
+.detail-seckill-offer:not(.active) { color: #999; border-color: #e1e2e4; background: #fafafa; }
+.detail-seckill-offer:not(.active) strong { color: #8b8f96; }
+
 .add-cart {
   color: #fff;
   background: #e2232d;
@@ -2911,6 +2963,132 @@ em.sku-noStock {
   }
 }
 
+.seckill-loading-card span,
+.seckill-loading-card i {
+  display: block;
+  background: #f0f1f3;
+  animation: skeleton-shimmer 1.3s ease infinite;
+}
+
+.seckill-loading-card span { width: 100%; height: 122px; }
+.seckill-loading-card i { width: 78%; height: 12px; margin-top: 12px; }
+.seckill-loading-card i:last-child { width: 46%; margin-top: 8px; }
+
+.home-seckill-more {
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 2px;
+  padding: 5px 9px;
+  color: #fff;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.seckill-empty-card {
+  grid-column: span 5;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: #8a8f98;
+  font-size: 13px;
+}
+
+.seckill-empty-card button,
+.seckill-state button,
+.outline-button {
+  border: 1px solid #e8192a;
+  border-radius: 2px;
+  padding: 7px 14px;
+  color: #e8192a;
+  background: #fff;
+  cursor: pointer;
+}
+
+.seckill-page { padding-bottom: 48px; }
+.seckill-hero {
+  min-height: 215px;
+  margin: 22px 0 18px;
+  padding: 36px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff;
+  background: linear-gradient(120deg, #b51226, #ef3a32 62%, #f06c2f);
+}
+.seckill-kicker { letter-spacing: 2px; font-size: 11px; opacity: .8; }
+.seckill-hero h1 { margin: 12px 0 6px; font-size: 42px; letter-spacing: 2px; }
+.seckill-hero p { margin: 0; color: rgba(255,255,255,.82); }
+.seckill-clock { min-width: 220px; text-align: center; }
+.seckill-clock span, .seckill-clock small { display: block; color: rgba(255,255,255,.8); font-size: 12px; }
+.seckill-clock strong { display: block; margin: 9px 0; font-size: 34px; letter-spacing: 3px; }
+.seckill-clock i { margin: 0 4px; font-style: normal; }
+.seckill-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 14px; }
+.seckill-toolbar div { display: flex; align-items: baseline; gap: 12px; }
+.seckill-toolbar b { color: #262a31; font-size: 20px; }
+.seckill-toolbar span { color: #8c919a; font-size: 13px; }
+.outline-button:disabled { cursor: wait; opacity: .5; }
+.seckill-session-block { margin-bottom: 22px; }
+.seckill-session-heading { min-height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; color: #fff; background: #343a45; }
+.seckill-session-heading > div:first-child { display: flex; align-items: baseline; gap: 12px; }
+.seckill-session-heading b { font-size: 16px; }
+.seckill-session-heading span, .seckill-session-heading small { color: rgba(255,255,255,.7); font-size: 11px; }
+.session-countdown { display: flex; align-items: baseline; gap: 8px; }
+.session-countdown strong { color: #ffcc72; font-size: 19px; letter-spacing: 1px; }
+.seckill-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding-top: 12px; }
+.seckill-product { min-height: 424px; display: flex; flex-direction: column; background: #fff; border: 1px solid #eceef1; transition: transform .2s, box-shadow .2s; }
+.seckill-product:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(20,27,38,.1); }
+.product-image { height: 230px; border: 0; cursor: pointer; }
+.product-image img { width: 100%; height: 100%; object-fit: contain; }
+.product-copy { padding: 16px 18px 18px; }
+.product-copy h2 { margin: 0; color: #2a2e35; font-size: 15px; line-height: 1.5; }
+.product-copy p { height: 20px; margin: 7px 0 10px; overflow: hidden; color: #8b9099; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.product-price { display: flex; align-items: baseline; gap: 8px; }
+.product-price strong { color: #e8192a; font-size: 24px; }
+.product-price del { color: #a0a4ac; font-size: 12px; }
+.stock-line { display: flex; justify-content: space-between; margin: 11px 0 14px; color: #9297a0; font-size: 11px; }
+.product-actions { display: flex; gap: 10px; }
+.quantity-stepper { display: inline-flex; height: 36px; border: 1px solid #e3e5e8; }
+.quantity-stepper button, .quantity-stepper span { width: 30px; display: grid; place-items: center; border: 0; background: #fff; color: #535962; }
+.quantity-stepper button { cursor: pointer; font-size: 16px; }
+.seckill-buy { flex: 1; border: 0; border-radius: 2px; color: #fff; background: #e8192a; font-weight: 600; cursor: pointer; }
+.seckill-buy:disabled { color: #969ba3; background: #eceef1; cursor: not-allowed; }
+.seckill-state { min-height: 280px; display: grid; place-content: center; justify-items: center; gap: 12px; color: #8b9099; background: #fff; }
+.seckill-state.error { display: block; min-height: auto; padding: 18px; color: #bd2835; }
+.seckill-state span { font-size: 13px; }
+.skeleton-product { padding: 18px; }
+.skeleton-product div, .skeleton-product i { display: block; background: linear-gradient(90deg,#f1f2f4,#fafafa,#f1f2f4); animation: skeleton-shimmer 1.3s infinite; }
+.skeleton-product div { height: 220px; }
+.skeleton-product i { height: 13px; margin-top: 16px; width: 80%; }
+.skeleton-product i:last-child { width: 45%; }
+@keyframes skeleton-shimmer { 0% { opacity: .65; } 50% { opacity: 1; } 100% { opacity: .65; } }
+
+@media (max-width: 800px) {
+  .seckill-page { padding-bottom: 28px; }
+  .seckill-hero { min-height: 0; margin: 12px 0 16px; padding: 26px 22px; }
+  .seckill-hero h1 { font-size: 28px; }
+  .seckill-hero p, .seckill-kicker { font-size: 10px; }
+  .seckill-clock { min-width: 132px; }
+  .seckill-clock strong { font-size: 19px; letter-spacing: 1px; }
+  .seckill-toolbar { margin-top: 18px; }
+  .seckill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .seckill-session-heading { min-height: 52px; padding: 0 12px; }
+  .seckill-session-heading b { font-size: 13px; }
+  .session-countdown { gap: 4px; }
+  .session-countdown strong { font-size: 14px; }
+  .session-countdown small { display: none; }
+  .seckill-product { min-height: 335px; }
+  .product-image { height: 156px; padding: 14px; }
+  .product-copy { padding: 12px; }
+  .product-copy h2 { height: 44px; overflow: hidden; font-size: 13px; }
+  .product-copy p { display: none; }
+  .product-price strong { font-size: 18px; }
+  .stock-line { flex-direction: column; gap: 3px; margin: 8px 0; }
+  .product-actions { gap: 6px; }
+  .quantity-stepper { height: 32px; }
+  .quantity-stepper button, .quantity-stepper span { width: 24px; }
+  .seckill-buy { font-size: 12px; }
+}
+
 /* Order confirmation */
 .checkout-page {
   min-height: 100vh;
@@ -3549,8 +3727,8 @@ em.sku-noStock {
 .order-card-info p { margin: 0; color: #9a9fa7; font-size: 11px; }
 .order-card-main > strong { width: 110px; color: #e2232d; font-size: 15px; text-align: right; }
 .order-card-actions { width: 100px; display: flex; justify-content: flex-end; }
-.order-card-actions button, .orders-state button, .cashier-state button, .cashier-placeholder button { height: 31px; padding: 0 13px; border: 1px solid #dfe2e5; color: #717780; background: #fff; font-size: 11px; }
-.order-card-actions button.primary, .orders-state.empty button, .cashier-placeholder button { border-color: #e2232d; color: #fff; background: #e2232d; }
+.order-card-actions button, .orders-state button, .cashier-state button, .cashier-placeholder button, .cashier-payment-box button:not(.cashier-pay-button) { height: 31px; padding: 0 13px; border: 1px solid #dfe2e5; color: #717780; background: #fff; font-size: 11px; }
+.order-card-actions button.primary, .orders-state.empty button, .cashier-placeholder button, .cashier-payment-box button:not(.cashier-pay-button) { border-color: #e2232d; color: #fff; background: #e2232d; }
 .orders-state { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 11px; color: #9aa0a8; font-size: 12px; }
 .orders-state.error { color: #d04a52; }
 .orders-state p { margin: 0; }
@@ -3581,9 +3759,16 @@ em.sku-noStock {
 .cashier-panel h2, .cashier-items h2 { margin: 0; color: #3b4047; font-size: 16px; }
 .cashier-panel > header strong { color: #e2232d; font-size: 26px; }
 .cashier-meta { display: flex; flex-wrap: wrap; gap: 24px; padding: 15px 0; color: #858b93; font-size: 11px; }
-.cashier-placeholder { display: flex; flex-direction: column; align-items: center; padding: 31px 15px 13px; border-top: 1px dashed #e2e5e8; }
-.cashier-placeholder b { color: #545a62; font-size: 14px; }
-.cashier-placeholder p { margin: 8px 0 17px; color: #a1a6ad; font-size: 11px; }
+.cashier-placeholder, .cashier-payment-box { display: flex; flex-direction: column; align-items: center; padding: 31px 15px 13px; border-top: 1px dashed #e2e5e8; }
+.cashier-placeholder b, .cashier-payment-box > b { color: #545a62; font-size: 14px; }
+.cashier-placeholder p, .cashier-payment-box > p { margin: 8px 0 17px; color: #a1a6ad; font-size: 11px; text-align: center; }
+.cashier-pay-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 148px; height: 38px; border: 0; color: #fff; background: #1677ff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.cashier-pay-button:hover { background: #0d63d8; }
+.cashier-pay-button:disabled { background: #9ebff0; cursor: wait; }
+.cashier-pay-button span { font-size: 15px; }
+.cashier-payment-error { margin: 12px 0 0 !important; color: #d04a52 !important; }
+.cashier-payment-notice { margin: 12px 0 0 !important; color: #3c9b68 !important; }
+.cashier-paid-title { color: #3c9b68 !important; }
 .cashier-item { min-height: 44px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #f1f2f4; color: #6f757e; font-size: 11px; }
 .cashier-item:last-child { border-bottom: 0; }
 .cashier-item span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

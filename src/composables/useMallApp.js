@@ -57,6 +57,8 @@ export function useMallApp() {
   const cashierOrder = ref(null)
   const cashierLoading = ref(false)
   const cashierError = ref('')
+  const alipayLoading = ref(false)
+  const alipayError = ref('')
   const activeSlide = ref(0)
   const sortBy = ref('')
   const selectedBrandId = ref(null)
@@ -82,6 +84,12 @@ export function useMallApp() {
   const detailImageIndex = ref(0)
   const detailQuantity = ref(1)
   const detailSelectedAttrs = ref({})
+  const detailSelectedSeckillSessionId = ref(null)
+  const seckillItems = ref([])
+  const seckillLoading = ref(false)
+  const seckillError = ref('')
+  const seckillActionSkuId = ref(null)
+  const seckillClock = ref(Date.now())
   const authMode = ref('login')
   const authForm = ref({ account: '', password: '', userName: '', email: '', code: '' })
   const authEmail = computed({
@@ -110,10 +118,15 @@ export function useMallApp() {
   let activeRequest
   let categoryRequest
   let detailRequest
+  let seckillRequest
+  let seckillClockTimer
+  let seckillRefreshTimer
   let orderConfirmRequest
   let orderFareRequest
   let ordersRequest
   let cashierRequest
+  let cashierRefreshTimer
+  let alipayRequest
   let routeListener
 
   const slides = [
@@ -425,6 +438,7 @@ const loadCashierOrder = async (orderSn) => {
   cashierRequest = request
   cashierLoading.value = true
   cashierError.value = ''
+  alipayError.value = ''
   cashierOrder.value = null
   try {
     const response = await authFetch(`${apiBase}/order/order/my/${encodeURIComponent(orderSn)}`, {
@@ -444,6 +458,71 @@ const loadCashierOrder = async (orderSn) => {
     return false
   } finally {
     if (cashierRequest === request) cashierLoading.value = false
+  }
+}
+const submitAlipayForm = (html) => {
+  const parsed = new DOMParser().parseFromString(String(html || ''), 'text/html')
+  const sourceForm = parsed.querySelector('form')
+  if (!sourceForm?.action) throw new Error('支付宝支付页面响应无效')
+
+  let action
+  try {
+    action = new URL(sourceForm.action, window.location.origin)
+  } catch {
+    throw new Error('支付宝支付地址无效')
+  }
+  const trustedHost = /(^|\.)alipay(?:dev)?\.com$/i.test(action.hostname)
+  if (action.protocol !== 'https:' || !trustedHost) throw new Error('支付宝支付地址不受信任')
+
+  const paymentForm = document.createElement('form')
+  paymentForm.method = (sourceForm.getAttribute('method') || 'POST').toUpperCase()
+  paymentForm.action = action.toString()
+  paymentForm.style.display = 'none'
+  sourceForm.querySelectorAll('input[name]').forEach((input) => {
+    const field = document.createElement('input')
+    field.type = 'hidden'
+    field.name = input.name
+    field.value = input.value
+    paymentForm.appendChild(field)
+  })
+  document.body.appendChild(paymentForm)
+  HTMLFormElement.prototype.submit.call(paymentForm)
+}
+const payWithAlipay = async (orderSn) => {
+  if (alipayLoading.value) return false
+  if (!isAuthenticated.value || !orderSn) {
+    showToast('订单信息无效，请返回订单列表重试')
+    return false
+  }
+  alipayLoading.value = true
+  alipayError.value = ''
+  alipayRequest?.abort()
+  const request = new AbortController()
+  alipayRequest = request
+  try {
+    const response = await authFetch(`${apiBase}/pay/alipay/go?orderSn=${encodeURIComponent(orderSn)}`, {
+      signal: request.signal,
+      headers: { Accept: 'text/html' },
+      credentials: 'include',
+    })
+    const html = await response.text()
+    if (!response.ok || !/<form\b/i.test(html)) {
+      let message = ''
+      try { message = JSON.parse(html)?.msg || JSON.parse(html)?.message } catch { /* plain text response */ }
+      throw new Error(message || (response.status === 401 ? '登录已过期，请重新登录' : '支付宝支付暂时不可用'))
+    }
+    if (alipayRequest !== request) return false
+    submitAlipayForm(html)
+    return true
+  } catch (error) {
+    if (error.name === 'AbortError') return false
+    if (alipayRequest === request) {
+      alipayError.value = error.message || '支付宝支付暂时不可用'
+      showToast(alipayError.value)
+    }
+    return false
+  } finally {
+    if (alipayRequest === request) alipayLoading.value = false
   }
 }
 const submitOrder = async (note = '') => {
@@ -472,7 +551,7 @@ const submitOrder = async (note = '') => {
       credentials: 'include',
       body: JSON.stringify({
         addrId: selectedOrderAddress()?.id,
-        payType: orderPayType.value === 'cod' ? 4 : 2,
+        payType: orderPayType.value === 'cod' ? 4 : 1,
         orderToken: orderConfirm.value.orderToken,
         payPrice,
         note: String(note || '').trim(),
@@ -542,6 +621,66 @@ const runCartAction = async (skuId, request) => {
     cartActionSkuId.value = null
   }
 }
+const buyNow = async (skuId, name = '商品', quantity = 1) => {
+  if (!isAuthenticated.value) {
+    showToast('请先登录后购买商品')
+    navigate('/login')
+    return false
+  }
+  const normalizedSkuId = Number(skuId)
+  const count = Math.max(1, Math.min(9999, Math.floor(Number(quantity) || 1)))
+  if (!Number.isSafeInteger(normalizedSkuId) || normalizedSkuId <= 0) {
+    showToast('该商品暂未关联可购买的库存')
+    return false
+  }
+  if (cartActionSkuId.value != null) return false
+  cartActionSkuId.value = String(normalizedSkuId)
+  try {
+    const current = await authFetch(`${apiBase}/cart/cart`, { credentials: 'include' })
+    const currentResult = await current.json().catch(() => ({}))
+    if (!current.ok || currentResult.code !== 0 || !currentResult.data) {
+      throw new Error(cartApiError(currentResult, '购物车加载失败'))
+    }
+    const items = Array.isArray(currentResult.data.items) ? currentResult.data.items : []
+    for (const item of items) {
+      if (String(item?.skuId) !== String(normalizedSkuId) && item?.check) {
+        await authFetch(`${apiBase}/cart/items/${encodeURIComponent(item.skuId)}/checked?checked=false`, {
+          method: 'PATCH', credentials: 'include',
+        })
+      }
+    }
+    const target = items.find((item) => String(item?.skuId) === String(normalizedSkuId))
+    if (target) {
+      const update = await authFetch(`${apiBase}/cart/items/${encodeURIComponent(normalizedSkuId)}?count=${count}`, {
+        method: 'PATCH', credentials: 'include',
+      })
+      const updateResult = await update.json().catch(() => ({}))
+      if (!update.ok || updateResult.code !== 0) throw new Error(cartApiError(updateResult, '购物车数量更新失败'))
+      if (!target.check) {
+        const check = await authFetch(`${apiBase}/cart/items/${encodeURIComponent(normalizedSkuId)}/checked?checked=true`, {
+          method: 'PATCH', credentials: 'include',
+        })
+        const checkResult = await check.json().catch(() => ({}))
+        if (!check.ok || checkResult.code !== 0) throw new Error(cartApiError(checkResult, '商品勾选失败'))
+      }
+    } else {
+      const add = await authFetch(`${apiBase}/cart/add?skuId=${encodeURIComponent(normalizedSkuId)}&num=${count}`, {
+        method: 'POST', credentials: 'include',
+      })
+      const addResult = await add.json().catch(() => ({}))
+      if (!add.ok || addResult.code !== 0) throw new Error(cartApiError(addResult, '商品加入购物车失败'))
+    }
+    await loadCart(false)
+    showToast(`${String(name || '商品').slice(0, 16)} 已加入结算清单`)
+    navigate('/order/confirm')
+    return true
+  } catch (error) {
+    showToast(error.message || '立即购买失败，请稍后重试')
+    return false
+  } finally {
+    cartActionSkuId.value = null
+  }
+}
 const resetFilters = () => {
   selectedBrandId.value = null
   selectedCatalogId.value = null
@@ -569,8 +708,172 @@ const normalizeImageUrl = (url) => {
   if (/^(https?:)?\/\//i.test(url) || url.startsWith('/')) return url
   return `/${url}`
 }
-const formatPrice = (price) => Number(price || 0).toFixed(2)
-const detailSku = computed(() => detailItem.value?.skuInfo || {})
+  const formatPrice = (price) => Number(price || 0).toFixed(2)
+  const normalizeSeckillItem = (item, fallbackSkuId = null) => {
+    const skuInfo = item?.skuInfo && typeof item.skuInfo === 'object' ? item.skuInfo : {}
+    const sessionId = item?.promotionSessionId
+    const skuId = item?.skuId ?? skuInfo.skuId ?? fallbackSkuId
+    if (!sessionId || !skuId) return null
+    return {
+      ...item,
+      skuInfo: { ...skuInfo, skuId },
+      promotionSessionId: sessionId,
+      skuId,
+      seckillPrice: Number(item?.seckillPrice) || 0,
+      seckillCount: Math.max(0, Number(item?.seckillCount) || 0),
+      seckillLimit: Math.max(1, Number(item?.seckillLimit) || 1),
+      startTime: Number(item?.startTime) || 0,
+      endTime: Number(item?.endTime) || 0,
+      sessionName: item?.sessionName || '',
+      randomCode: item?.randomCode || '',
+    }
+  }
+  const seckillCountdown = computed(() => {
+    const active = seckillItems.value
+      .filter((item) => item.startTime <= seckillClock.value && item.endTime > seckillClock.value)
+      .sort((left, right) => left.endTime - right.endTime)[0]
+    const next = seckillItems.value
+      .filter((item) => item.startTime > seckillClock.value)
+      .sort((left, right) => left.startTime - right.startTime)[0]
+    const target = active?.endTime || next?.startTime || 0
+    const totalSeconds = Math.max(0, Math.floor((target - seckillClock.value) / 1000))
+    return {
+      status: active ? '进行中' : next ? '即将开始' : '活动已结束',
+      hours: String(Math.floor(totalSeconds / 3600)).padStart(2, '0'),
+      minutes: String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0'),
+      seconds: String(totalSeconds % 60).padStart(2, '0'),
+      target,
+      sessionId: active?.promotionSessionId || next?.promotionSessionId || null,
+    }
+  })
+  const seckillCountdownFor = (session) => {
+    const startTime = Number(session?.startTime) || 0
+    const endTime = Number(session?.endTime) || 0
+    const now = seckillClock.value
+    const active = startTime <= now && endTime > now
+    const target = active ? endTime : startTime > now ? startTime : 0
+    const totalSeconds = Math.max(0, Math.floor((target - now) / 1000))
+    return {
+      status: active ? '进行中' : startTime > now ? '即将开始' : '已结束',
+      hours: String(Math.floor(totalSeconds / 3600)).padStart(2, '0'),
+      minutes: String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0'),
+      seconds: String(totalSeconds % 60).padStart(2, '0'),
+      text: `${String(Math.floor(totalSeconds / 3600)).padStart(2, '0')}:${String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0')}:${String(totalSeconds % 60).padStart(2, '0')}`,
+      target,
+    }
+  }
+  const isSeckillActive = (item) => Boolean(item?.randomCode && item.startTime <= seckillClock.value && item.endTime > seckillClock.value)
+  const detailSeckillInfos = computed(() => {
+    const skuId = detailSkuId.value || detailItem.value?.skuInfo?.skuId
+    const raw = Array.isArray(detailItem.value?.seckillInfos)
+      ? detailItem.value.seckillInfos
+      : detailItem.value?.seckillInfo ? [detailItem.value.seckillInfo] : []
+    const bySession = new Map()
+    raw.map((item) => normalizeSeckillItem(item, skuId)).filter(Boolean).forEach((item) => {
+      bySession.set(String(item.promotionSessionId), item)
+    })
+    // The list endpoint contains the current random code. Merge it so a detail
+    // page that stayed open through a session start can still submit securely.
+    seckillItems.value
+      .filter((item) => String(item.skuId) === String(skuId))
+      .forEach((item) => bySession.set(String(item.promotionSessionId), { ...bySession.get(String(item.promotionSessionId)), ...item }))
+    return [...bySession.values()]
+      .filter((item) => item.endTime >= seckillClock.value)
+      .sort((left, right) => left.startTime - right.startTime || left.endTime - right.endTime)
+  })
+  const detailActiveSeckillInfos = computed(() => detailSeckillInfos.value.filter((item) => isSeckillActive(item)))
+  const detailSelectedSeckill = computed(() => {
+    const selected = detailSeckillInfos.value.find((item) => String(item.promotionSessionId) === String(detailSelectedSeckillSessionId.value))
+    if (selected && isSeckillActive(selected)) return selected
+    return detailActiveSeckillInfos.value[0] || selected || detailSeckillInfos.value[0] || null
+  })
+  const selectDetailSeckillSession = (sessionId) => {
+    detailSelectedSeckillSessionId.value = sessionId
+  }
+  const loadSeckillItems = async (notifyOnError = false) => {
+    seckillRequest?.abort()
+    const request = new AbortController()
+    seckillRequest = request
+    seckillLoading.value = true
+    seckillError.value = ''
+    try {
+      const response = await authFetch(`${apiBase}/seckill/get-curr-sku`, {
+        signal: request.signal,
+        credentials: 'include',
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.code !== 0 || !Array.isArray(result.data)) {
+        throw new Error(cartApiError(result, '秒杀活动加载失败'))
+      }
+      if (seckillRequest !== request) return false
+      seckillItems.value = result.data
+        .map(normalizeSeckillItem)
+        .filter(Boolean)
+        .sort((left, right) => Number(left.seckillSort) - Number(right.seckillSort))
+      seckillClock.value = Date.now()
+      return true
+    } catch (error) {
+      if (error.name === 'AbortError') return false
+      if (seckillRequest === request) {
+        seckillItems.value = []
+        seckillError.value = error.message || '秒杀活动加载失败'
+        if (notifyOnError) showToast(seckillError.value)
+      }
+      return false
+    } finally {
+      if (seckillRequest === request) seckillLoading.value = false
+    }
+  }
+  const openSeckill = () => {
+    navigate('/seckill')
+  }
+  const submitSeckill = async (item, quantity = 1) => {
+    if (!isAuthenticated.value) {
+      showToast('请先登录后参与秒杀')
+      navigate('/login')
+      return false
+    }
+    if (!item || !isSeckillActive(item) || seckillActionSkuId.value != null) {
+      showToast('当前商品暂未到抢购时间，请刷新活动列表')
+      return false
+    }
+    const num = Math.max(1, Math.min(item.seckillLimit, Math.floor(Number(quantity) || 1)))
+    seckillActionSkuId.value = item.skuId
+    try {
+      const params = new URLSearchParams({
+        sessionId: String(item.promotionSessionId),
+        skuId: String(item.skuId),
+        key: item.randomCode,
+        num: String(num),
+      })
+      const response = await authFetch(`${apiBase}/seckill/kill?${params.toString()}`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const result = await response.json().catch(() => ({}))
+      const orderSn = result?.data
+      if (!response.ok || result.code !== 0 || !orderSn) {
+        throw new Error(cartApiError(result, '抱歉，商品已被抢完或您已参加本场秒杀'))
+      }
+      showToast('抢购成功，订单正在生成')
+      navigate('/orders')
+      window.setTimeout(() => loadOrders(1, ordersStatus.value, false), 1600)
+      return true
+    } catch (error) {
+      if (error.name !== 'AbortError') showToast(error.message || '秒杀请求失败，请稍后重试')
+      return false
+    } finally {
+      seckillActionSkuId.value = null
+    }
+  }
+  const buySelectedSeckill = () => {
+    if (!detailSelectedSeckill.value || !isSeckillActive(detailSelectedSeckill.value)) {
+      showToast('当前没有可抢购的秒杀场次')
+      return false
+    }
+    return submitSeckill(detailSelectedSeckill.value, detailQuantity.value)
+  }
+  const detailSku = computed(() => detailItem.value?.skuInfo || {})
 const detailImages = computed(() => {
   const images = (detailItem.value?.images || []).map((item) => normalizeImageUrl(item.imgUrl)).filter(Boolean)
   const fallback = normalizeImageUrl(detailSku.value.skuDefaultImg)
@@ -656,10 +959,18 @@ const loadDetail = async (skuId) => {
     const result = await response.json()
     const payload = result?.data?.skuInfo ? result.data : (result?.skuInfo ? result : result?.data)
     if (!payload?.skuInfo) throw new Error(result?.msg || '商品详情不存在')
-    detailItem.value = payload
-    detailImageIndex.value = 0
-    detailQuantity.value = 1
-    const attrs = {}
+      detailItem.value = payload
+      detailImageIndex.value = 0
+      detailQuantity.value = 1
+      const seckillInfos = Array.isArray(payload.seckillInfos)
+        ? payload.seckillInfos
+        : payload.seckillInfo ? [payload.seckillInfo] : []
+      detailSelectedSeckillSessionId.value = seckillInfos
+        .filter((item) => Number(item?.startTime) <= Date.now() && Number(item?.endTime) > Date.now())
+        .sort((left, right) => Number(left.endTime) - Number(right.endTime))[0]?.promotionSessionId
+        ?? seckillInfos[0]?.promotionSessionId
+        ?? null
+      const attrs = {}
       ; (payload.saleAttrs || []).forEach((attr) => {
         const currentValue = (attr.attrValues || []).find((value) => value?.isCurrent)
           || attr.attrValues?.[0]
@@ -679,6 +990,7 @@ const loadDetail = async (skuId) => {
   }
 }
 const handleRoute = (path = window.location.pathname) => {
+  clearTimeout(cashierRefreshTimer)
   const normalized = String(path).split('?')[0].replace(/\/+$/, '') || '/'
   const itemMatch = normalized.match(/^\/item\/([^/]+)$/)
   if (itemMatch) {
@@ -691,6 +1003,12 @@ const handleRoute = (path = window.location.pathname) => {
   if (normalized === '/search') {
     page.value = 'search'
     loadSearch(1, false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    return
+  }
+  if (normalized === '/seckill') {
+    page.value = 'seckill'
+    loadSeckillItems(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
     return
   }
@@ -733,8 +1051,14 @@ const handleRoute = (path = window.location.pathname) => {
       return
     }
     page.value = 'cashier'
-    const orderSn = new URLSearchParams(window.location.search).get('orderSn')
+    const paymentParams = new URLSearchParams(window.location.search)
+    // Alipay appends out_trade_no on the configured return URL. Keep orderSn
+    // for direct links from the order list and use the gateway name on return.
+    const orderSn = paymentParams.get('orderSn') || paymentParams.get('out_trade_no')
     loadCashierOrder(orderSn)
+    if (orderSn && ['TRADE_SUCCESS', 'TRADE_FINISHED'].includes(paymentParams.get('trade_status'))) {
+      cashierRefreshTimer = window.setTimeout(() => loadCashierOrder(orderSn), 1800)
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' })
     return
   }
@@ -1173,7 +1497,9 @@ const nextSlide = () => (activeSlide.value = (activeSlide.value + 1) % slides.le
 const prevSlide = () => (activeSlide.value = (activeSlide.value + slides.length - 1) % slides.length)
 onMounted(() => {
   carouselTimer = setInterval(nextSlide, 4800)
+  seckillClockTimer = setInterval(() => (seckillClock.value = Date.now()), 1000)
   loadCategories()
+  loadSeckillItems(false)
   routeListener = () => handleRoute()
   window.addEventListener('popstate', routeListener)
   handleRoute()
@@ -1192,10 +1518,14 @@ onBeforeUnmount(() => {
   activeRequest?.abort()
   categoryRequest?.abort()
   detailRequest?.abort()
+  seckillRequest?.abort()
+  clearInterval(seckillClockTimer)
   orderConfirmRequest?.abort()
   orderFareRequest?.abort()
   ordersRequest?.abort()
   cashierRequest?.abort()
+  clearTimeout(cashierRefreshTimer)
+  alipayRequest?.abort()
   clearInterval(emailCountdownTimer)
   wechatClient?.deactivate()
   if (routeListener) window.removeEventListener('popstate', routeListener)
@@ -1232,6 +1562,8 @@ onBeforeUnmount(() => {
     cashierOrder,
     cashierLoading,
     cashierError,
+    alipayLoading,
+    alipayError,
     activeSlide,
     sortBy,
     selectedBrandId,
@@ -1257,6 +1589,12 @@ onBeforeUnmount(() => {
     detailImageIndex,
     detailQuantity,
     detailSelectedAttrs,
+    detailSelectedSeckillSessionId,
+    seckillItems,
+    seckillLoading,
+    seckillError,
+    seckillActionSkuId,
+    seckillCountdown,
     authMode,
     authForm,
     authEmail,
@@ -1292,14 +1630,24 @@ onBeforeUnmount(() => {
     showToast,
     normalizeImageUrl,
     formatPrice,
+    isSeckillActive,
+    seckillCountdownFor,
     detailSku,
     detailImages,
     detailDescription,
+    detailSeckillInfos,
+    detailActiveSeckillInfos,
+    detailSelectedSeckill,
     saleAttrValueLabel,
     isSaleAttrValueAvailable,
     selectSaleAttr,
     navigate,
     goHome,
+    openSeckill,
+    loadSeckillItems,
+    submitSeckill,
+    buySelectedSeckill,
+    selectDetailSeckillSession,
     loadDetail,
     openProduct,
     loadCategories,
@@ -1318,6 +1666,7 @@ onBeforeUnmount(() => {
     clearFilter,
     clearAttributeFilter,
     addToCart,
+    buyNow,
     loadCart,
     updateCartCount,
     changeCartQuantity,
@@ -1334,6 +1683,7 @@ onBeforeUnmount(() => {
     openOrders,
     loadOrders,
     loadCashierOrder,
+    payWithAlipay,
     backToCart,
     submitOrder,
     submitAuth,

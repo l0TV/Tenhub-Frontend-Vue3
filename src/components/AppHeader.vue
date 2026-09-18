@@ -1,4 +1,5 @@
 <script setup>
+import { useCustomerService } from '../composables/useCustomerService'
 import { useMallAppContext } from '../composables/mallContext'
 
 const {
@@ -19,6 +20,8 @@ const {
   openSearch,
   openSeckill,
 } = useMallAppContext()
+
+const { isOpen: customerServiceOpen, openPanel: openCustomerService } = useCustomerService()
 </script>
 
 <template>
@@ -32,7 +35,7 @@ const {
         <template v-else>
           <a @click="navigate('/login')">你好，请登录</a><a @click="navigate('/register')">免费注册</a>
         </template>
-        <i></i><a @click="openOrders">我的订单</a><a>我的拾汇商城</a><a>客户服务</a><a>网站导航</a>
+        <i></i><a @click="openOrders">我的订单</a><a>我的拾汇商城</a><a :class="{ 'is-active': customerServiceOpen }" @click="openCustomerService">客户服务</a><a>网站导航</a>
       </div>
     </div>
   </div>

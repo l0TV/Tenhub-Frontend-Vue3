@@ -59,6 +59,12 @@ a {
   color: #8f949c;
 }
 
+/* 页头「客户服务」入口：客服浮窗打开时高亮 */
+.strip-links a.is-active {
+  color: #e51b2a;
+  font-weight: 700;
+}
+
 .strip-links {
   gap: 20px;
 }

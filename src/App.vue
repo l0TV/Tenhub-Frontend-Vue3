@@ -2,6 +2,7 @@
 import { provide } from 'vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
+import CustomerServiceWidget from './components/CustomerServiceWidget.vue'
 import ToastMessage from './components/ToastMessage.vue'
 import { mallAppKey } from './composables/mallContext'
 import { useMallApp } from './composables/useMallApp'
@@ -41,5 +42,7 @@ provide(mallAppKey, mallApp)
       <AppFooter />
     </template>
     <ToastMessage />
+    <!-- 智能客服浮窗：下单、收银等页面同样可用 -->
+    <CustomerServiceWidget />
   </div>
 </template>
